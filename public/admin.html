@@ -78,7 +78,16 @@
   <img class="logo" id="logo" alt="4force lab">
   <h1>CONTRACT FLOW</h1>
   <div class="sub">4force lab · 私域電子簽署 · 管理端</div>
-  <div class="panel">
+
+  <!-- 密碼閘（擋誤闖，非防駭） -->
+  <div class="panel" id="gate">
+    <label>請輸入管理密碼</label>
+    <input type="password" id="pw" placeholder="管理密碼" autocomplete="off">
+    <button id="gateBtn">進入</button>
+    <div class="err" id="gateErr"></div>
+  </div>
+
+  <div class="panel" id="work" style="display:none">
     <label>案件名稱</label>
     <input type="text" id="caseName" placeholder="例：鍋美美食艷室 · 設備租賃合約">
     <label>合約 PDF</label>
@@ -134,6 +143,23 @@ console.log('%cSIGN ENGINE · 你來到了引擎室。','color:#00B4FF;font-size
 
 // ── 上傳邏輯 ──
 const $=id=>document.getElementById(id);
+
+// ── 密碼閘（擋誤闖，非防駭）──
+const GATE_PW='aaaa8888';
+function unlock(){
+  $('gate').style.display='none';
+  $('work').style.display='block';
+  try{ sessionStorage.setItem('cf_ok','1'); }catch(_){}
+}
+function tryGate(){
+  if($('pw').value===GATE_PW){ unlock(); }
+  else{ $('gateErr').textContent='密碼錯誤'; $('pw').value=''; $('pw').focus(); }
+}
+$('gateBtn').addEventListener('click',tryGate);
+$('pw').addEventListener('keydown',e=>{ if(e.key==='Enter')tryGate(); });
+// 同一瀏覽器分頁工作階段內，重整不必重新輸入
+try{ if(sessionStorage.getItem('cf_ok')==='1')unlock(); }catch(_){}
+
 function setErr(m){$('err').textContent=m||''}
 function toB64(file){return new Promise((res,rej)=>{const r=new FileReader();
   r.onload=()=>res(r.result);r.onerror=()=>rej(new Error('讀檔失敗'));r.readAsDataURL(file)})}
