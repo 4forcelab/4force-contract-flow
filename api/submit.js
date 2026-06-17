@@ -4,6 +4,10 @@ const { list } = require('@vercel/blob');
 const nodemailer = require('nodemailer');
 const { PDFDocument, rgb } = require('pdf-lib');
 
+function asciiLog(value, max = 120) {
+  return String(value || '').replace(/[^\x20-\x7E]/g, '?').slice(0, max);
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
@@ -69,11 +73,11 @@ module.exports = async (req, res) => {
     const stamp = new Date().toISOString();
     const last = pages[pages.length - 1];
     const logLines = [
-      `簽署人：${signerName}`,
-      `案件：${caseName}`,
-      `時間：${stamp}`,
-      `IP：${ip}`,
-      `UA：${ua}`
+      `Signer: ${asciiLog(signerName)}`,
+      `Case: ${asciiLog(caseName)}`,
+      `Time: ${stamp}`,
+      `IP: ${asciiLog(ip)}`,
+      `UA: ${asciiLog(ua)}`
     ];
     logLines.forEach((line, i) => {
       last.drawText(line, { x: 24, y: 20 + (logLines.length - 1 - i) * 11, size: 7, color: rgb(0.45, 0.45, 0.45) });
@@ -107,4 +111,3 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: 'SUBMIT_FAIL', detail: String(e && e.message ? e.message : e) });
   }
 };
-
