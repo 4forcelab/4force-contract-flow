@@ -58,6 +58,11 @@
   .ft-brand .nm{font-size:13px;font-weight:700;color:#cbd5e6;line-height:1.35}
   .ft-brand .nm small{display:block;font-size:10px;font-weight:400;color:var(--muted);letter-spacing:.5px}
   .ft-words{display:flex;gap:14px;font-size:11px;font-weight:700;letter-spacing:.5px}
+  @media(max-width:560px){
+    footer{flex-direction:column;align-items:flex-start;gap:14px;padding:20px 4px 8px}
+    .ft-words{flex-wrap:wrap}
+    .ft-legal{text-align:left}
+  }
   .ft-words span:nth-child(1){color:var(--neon-blue)}
   .ft-words span:nth-child(2){color:#cbd5e6}
   .ft-words span:nth-child(3){color:var(--neon-pink)}

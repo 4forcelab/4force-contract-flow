@@ -30,11 +30,25 @@
     padding:16px;backdrop-filter:blur(12px);margin-bottom:16px}
   .panel h2{font-size:13px;color:var(--neon-green);margin-bottom:10px;font-weight:700;letter-spacing:.5px}
   #pdfWrap{position:relative;text-align:center;background:#0a0e16;border-radius:10px;
-    padding:10px;max-height:60vh;overflow:auto}
+    padding:10px;max-height:58vh;overflow:auto;transition:max-height .25s}
+  #pdfWrap.full{max-height:none;position:fixed;inset:0;z-index:50;border-radius:0;
+    padding:54px 10px 10px;overflow:auto;background:#05070d}
   #pdfCanvas{max-width:100%;cursor:crosshair;display:block;margin:0 auto}
-  .marker{position:absolute;width:14px;height:14px;border:2px solid var(--neon-pink);
-    border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;
-    box-shadow:0 0 10px var(--neon-pink);display:none}
+  /* 簽名落點：點擊後出現的等比虛線框（= 後端實際壓印大小）*/
+  .marker{position:absolute;border:2px dashed var(--neon-pink);border-radius:6px;
+    transform:translate(-50%,-50%);pointer-events:none;
+    box-shadow:0 0 14px rgba(255,45,120,.5);display:none;
+    background:rgba(255,45,120,.06)}
+  .marker::after{content:'簽名落款處';position:absolute;left:50%;top:-9px;
+    transform:translateX(-50%);font-size:9px;color:var(--neon-pink);
+    background:#05070d;padding:0 5px;white-space:nowrap}
+  .review-bar{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .review-bar .expand{background:#0a0e16;border:1px solid var(--neon-blue);color:var(--neon-blue);
+    border-radius:8px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600}
+  #fsClose{display:none;position:fixed;top:12px;right:14px;z-index:60;
+    background:rgba(10,14,22,.9);border:1px solid var(--neon-pink);color:var(--neon-pink);
+    border-radius:9px;padding:8px 16px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:700}
+  #pdfWrap.full ~ #fsClose,body.fs #fsClose{display:block}
   .pager{display:flex;gap:8px;justify-content:center;align-items:center;margin-top:10px;font-size:13px;color:var(--muted)}
   .pager button{background:#0a0e16;border:1px solid rgba(255,255,255,.1);color:#cbd5e6;
     border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit}
@@ -47,6 +61,9 @@
     border-radius:10px;padding:12px 14px;color:#e8edf5;font-family:inherit;font-size:14px}
   input[type=text]:focus{outline:none;border-color:var(--neon-green);box-shadow:0 0 0 2px rgba(0,255,159,.15)}
   .hint{font-size:12px;color:var(--muted);margin-top:8px}
+  .declare{font-size:11px;line-height:1.7;color:var(--muted);background:rgba(0,180,255,.04);
+    border:1px solid rgba(0,180,255,.14);border-radius:9px;padding:11px 13px;margin-top:14px}
+  .declare b{color:#9fb0c8;font-weight:600}
   .submit{width:100%;margin-top:8px;padding:15px;border:none;border-radius:12px;cursor:pointer;
     font-family:inherit;font-weight:700;font-size:15px;color:#05070d;
     background:linear-gradient(90deg,var(--neon-green),var(--neon-blue))}
@@ -65,6 +82,11 @@
   .ft-brand .nm{font-size:13px;font-weight:700;color:#cbd5e6;line-height:1.35}
   .ft-brand .nm small{display:block;font-size:10px;font-weight:400;color:var(--muted);letter-spacing:.5px}
   .ft-words{display:flex;gap:14px;font-size:11px;font-weight:700;letter-spacing:.5px}
+  @media(max-width:560px){
+    footer{flex-direction:column;align-items:flex-start;gap:14px;padding:20px 4px 8px}
+    .ft-words{flex-wrap:wrap}
+    .ft-legal{text-align:left}
+  }
   .ft-words span:nth-child(1){color:var(--neon-blue)}
   .ft-words span:nth-child(2){color:#cbd5e6}
   .ft-words span:nth-child(3){color:var(--neon-pink)}
@@ -82,17 +104,22 @@
 
   <div id="flow" style="display:none">
     <div class="panel">
-      <h2>① 檢視文件 · 點選簽名位置</h2>
+      <h2>① 審閱文件 · 點選簽名位置</h2>
+      <div class="review-bar">
+        <span style="font-size:12px;color:var(--muted)">請審閱合約內容後簽署</span>
+        <button class="expand" id="expandBtn">⤢ 放大審閱</button>
+      </div>
       <div id="pdfWrap">
         <canvas id="pdfCanvas"></canvas>
         <div class="marker" id="marker"></div>
       </div>
+      <button id="fsClose">✕ 關閉放大</button>
       <div class="pager">
         <button id="prev">‹ 上一頁</button>
         <span id="pageInfo">1 / 1</span>
         <button id="next">下一頁 ›</button>
       </div>
-      <div class="hint">在文件上點一下，標記簽名落點（粉紅圈）。</div>
+      <div class="hint">在文件上點一下，標記簽名落款位置（出現虛線框＝實際簽名大小）。</div>
     </div>
 
     <div class="panel">
@@ -106,6 +133,11 @@
     <div class="panel">
       <h2>③ 填寫姓名並送出</h2>
       <input type="text" id="signerName" placeholder="簽署人姓名">
+      <div class="declare">
+        <b>簽署聲明</b>　送出即表示您已審閱本文件並同意其內容，此電子簽署與親筆簽名具同等效力。
+        本連結為您專屬之私人簽署連結，請勿轉發外流。
+        簽署過程之時間、IP、裝置資訊將一併記錄，作為雙方合意之佐證。
+      </div>
       <button class="submit" id="submitBtn" style="margin-top:14px">確認簽署</button>
       <div class="msg" id="msg"></div>
     </div>
@@ -178,7 +210,8 @@ async function renderPage(n){
   const page=await pdfDoc.getPage(n);
   const wrapW=$('pdfWrap').clientWidth-20;
   const vp0=page.getViewport({scale:1});
-  renderScale=Math.min(1.6,wrapW/vp0.width);
+  const capScale=$('pdfWrap').classList.contains('full')?3:1.6;
+  renderScale=Math.min(capScale,wrapW/vp0.width);
   const vp=page.getViewport({scale:renderScale});
   const cv=$('pdfCanvas');cv.width=vp.width;cv.height=vp.height;
   await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
@@ -186,10 +219,16 @@ async function renderPage(n){
   $('marker').style.display=(placedPage===n)?'block':'none';
   if(placedPage===n)positionMarker();
 }
+// 後端壓印框固定 160×60 PDF point；畫布是 PDF 放大 renderScale 倍，
+// 故畫布上的虛線框 = 160*renderScale × 60*renderScale，達成所見即所得。
+const STAMP_W=160, STAMP_H=60;
 function positionMarker(){
   const cv=$('pdfCanvas'),m=$('marker');
-  m.style.left=(cv.offsetLeft+relX*cv.width)+'px';
-  m.style.top=(cv.offsetTop+relY*cv.height)+'px';
+  const dispScale=cv.getBoundingClientRect().width/cv.width; // 畫布 CSS 顯示縮放
+  m.style.width=(STAMP_W*renderScale*dispScale)+'px';
+  m.style.height=(STAMP_H*renderScale*dispScale)+'px';
+  m.style.left=(cv.offsetLeft+relX*cv.getBoundingClientRect().width)+'px';
+  m.style.top=(cv.offsetTop+relY*cv.getBoundingClientRect().height)+'px';
 }
 $('pdfCanvas').addEventListener('click',e=>{
   const cv=$('pdfCanvas'),r=cv.getBoundingClientRect();
@@ -198,6 +237,17 @@ $('pdfCanvas').addEventListener('click',e=>{
 });
 $('prev').addEventListener('click',()=>{if(curPage>1)renderPage(curPage-1)});
 $('next').addEventListener('click',()=>{if(curPage<totalPages)renderPage(curPage+1)});
+
+// ── 全屏審閱切換 ──
+function toggleFull(on){
+  const wrap=$('pdfWrap');
+  if(on){wrap.classList.add('full');document.body.classList.add('fs');$('fsClose').style.display='block';}
+  else{wrap.classList.remove('full');document.body.classList.remove('fs');$('fsClose').style.display='none';}
+  // 重繪以適應新寬度，並還原落點框
+  renderPage(curPage);
+}
+$('expandBtn').addEventListener('click',()=>toggleFull(true));
+$('fsClose').addEventListener('click',()=>toggleFull(false));
 
 // ── 簽名板 ──
 function initSig(){
