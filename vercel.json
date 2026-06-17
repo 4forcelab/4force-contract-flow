@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/s/:token", "destination": "/client.html" },
+    { "source": "/", "destination": "/admin.html" }
+  ]
+}
+
