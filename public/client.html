@@ -148,6 +148,13 @@
     <h2>簽署完成</h2>
     <p>文件已送回 4force lab，感謝您的配合。</p>
   </div>
+
+  <div id="lockView" class="panel done" style="display:none">
+    <div class="big" style="color:var(--neon-blue)">🔒</div>
+    <h2 style="color:var(--neon-blue)">此文件已完成簽署</h2>
+    <p class="lk-time" style="margin-bottom:6px"></p>
+    <p>本連結為一次性簽署憑證，已不可重新簽署。<br>如需重新簽署，請聯繫承辦人重新開立。</p>
+  </div>
 </div>
 <footer>
   <div class="ft-brand">
@@ -189,6 +196,14 @@ let pdfDoc=null,curPage=1,totalPages=1,placedPage=null,relX=0.5,relY=0.85;
 let renderScale=1;
 
 // ── 載入文件 ──
+function showLocked(signedAt){
+  const when = signedAt ? new Date(signedAt).toLocaleString('zh-TW',{hour12:false}) : '';
+  $('flow').style.display='none';
+  $('caseLine').style.display='none';
+  const v=$('lockView');
+  v.style.display='block';
+  v.querySelector('.lk-time').textContent = when ? ('簽署時間：'+when) : '';
+}
 async function load(){
   if(!token||!/^[a-f0-9]{32}$/.test(token)){$('caseLine').textContent='連結無效';return}
   try{
@@ -196,6 +211,8 @@ async function load(){
     const d=await r.json();
     if(!d.ok)throw new Error(d.detail||d.error||'載入失敗');
     $('caseLine').innerHTML='案件：<b>'+d.caseName+'</b>';
+    // 一次性鎖定：已簽署則顯示鎖定畫面，不載入簽署流程
+    if(d.signed){ showLocked(d.signedAt); return; }
     const bytes=Uint8Array.from(atob(d.pdfBase64),c=>c.charCodeAt(0));
     pdfDoc=await pdfjsLib.getDocument({data:bytes}).promise;
     totalPages=pdfDoc.numPages;
@@ -287,6 +304,8 @@ $('submitBtn').addEventListener('click',async()=>{
       body:JSON.stringify({token,signerName:name,signatureBase64:sig,
         page:placedPage-1,x:relX,y:relY})});
     const d=await r.json();
+    // 已被簽署（極端情況：多分頁同時送出）→ 顯示鎖定畫面
+    if(r.status===409||d.error==='ALREADY_SIGNED'){ showLocked(d.signedAt); return; }
     if(!d.ok)throw new Error(d.detail||d.error||'送出失敗');
     $('flow').style.display='none';$('caseLine').style.display='none';
     $('doneView').style.display='block';

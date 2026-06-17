@@ -30,6 +30,7 @@ module.exports = async (req, res) => {
     const blobs = await findBlob('docs', token);
     const pdfBlob = blobs.find(b => b.pathname === `docs/${token}.pdf`);
     const metaBlob = blobs.find(b => b.pathname === `docs/${token}.json`);
+    const signedBlob = blobs.find(b => b.pathname === `docs/${token}.signed`);
 
     if (!pdfBlob) {
       res.status(404).json({ error: 'DOC_NOT_FOUND' });
@@ -47,13 +48,21 @@ module.exports = async (req, res) => {
       } catch (_) { /* meta 缺失不阻擋 */ }
     }
 
+    // 一次性鎖定狀態
+    let signed = false, signedAt = '';
+    if (signedBlob) {
+      signed = true;
+      try { signedAt = (await (await fetch(signedBlob.url)).json()).signedAt || ''; } catch (_) {}
+    }
+
     res.status(200).json({
       ok: true,
       caseName: meta.caseName || '未命名案件',
-      pdfBase64: pdfArr.toString('base64')
+      pdfBase64: pdfArr.toString('base64'),
+      signed,
+      signedAt
     });
   } catch (e) {
     res.status(500).json({ error: 'DOC_FAIL', detail: String(e && e.message ? e.message : e) });
   }
 };
-

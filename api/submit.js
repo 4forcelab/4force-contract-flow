@@ -1,6 +1,6 @@
 // api/submit.js — 客戶簽署 → 壓印簽名+log → Gmail SMTP 寄附件
 // CommonJS only.
-const { list } = require('@vercel/blob');
+const { list, put } = require('@vercel/blob');
 const nodemailer = require('nodemailer');
 const { PDFDocument, rgb } = require('pdf-lib');
 
@@ -36,8 +36,16 @@ module.exports = async (req, res) => {
     const { blobs } = await list({ prefix: `docs/${token}`, token: process.env.BLOB_RW_TOKEN });
     const pdfBlob = blobs.find(b => b.pathname === `docs/${token}.pdf`);
     const metaBlob = blobs.find(b => b.pathname === `docs/${token}.json`);
+    const signedBlob = blobs.find(b => b.pathname === `docs/${token}.signed`);
     if (!pdfBlob) {
       res.status(404).json({ error: 'DOC_NOT_FOUND' });
+      return;
+    }
+    // 一次性鎖定：已簽署則拒絕重簽
+    if (signedBlob) {
+      let signedAt = '';
+      try { signedAt = (await (await fetch(signedBlob.url)).json()).signedAt || ''; } catch (_) {}
+      res.status(409).json({ error: 'ALREADY_SIGNED', signedAt });
       return;
     }
 
@@ -106,6 +114,16 @@ module.exports = async (req, res) => {
         contentType: 'application/pdf'
       }]
     });
+
+    // 寄信成功後才寫鎖定標記（寄信失敗則不鎖，可重試）
+    try {
+      await put(`docs/${token}.signed`, JSON.stringify({ signedAt: stamp, signer: signerName, ip }), {
+        access: 'public',
+        token: process.env.BLOB_RW_TOKEN,
+        addRandomSuffix: false,
+        contentType: 'application/json'
+      });
+    } catch (_) { /* 標記寫入失敗不影響本次簽署成立，最多允許極端情況重簽 */ }
 
     res.status(200).json({ ok: true, caseName, signerName, stamp });
   } catch (e) {
