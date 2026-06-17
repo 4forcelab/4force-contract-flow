@@ -4,10 +4,6 @@ const { list } = require('@vercel/blob');
 const nodemailer = require('nodemailer');
 const { PDFDocument, rgb } = require('pdf-lib');
 
-function asciiLog(value, max = 120) {
-  return String(value || '').replace(/[^\x20-\x7E]/g, '?').slice(0, max);
-}
-
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
@@ -71,13 +67,18 @@ module.exports = async (req, res) => {
     const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
     const ua = (req.headers['user-agent'] || 'unknown').slice(0, 120);
     const stamp = new Date().toISOString();
+    // pdf-lib 內建字型只支援 WinAnsi（無法寫中文）。
+    // PDF 上的 log 僅壓「ASCII 安全」欄位（時間/IP/UA/token）；
+    // 中文內容（簽署人姓名、案件名）改放 email 內文（UTF-8，零編碼問題）。
+    // 簽署證據鏈仍完整：簽名圖已壓在文件上，PDF log + email 互為佐證。
     const last = pages[pages.length - 1];
+    const asciiName = String(signerName).replace(/[^\x00-\x7F]/g, '').trim();
     const logLines = [
-      `Signer: ${asciiLog(signerName)}`,
-      `Case: ${asciiLog(caseName)}`,
+      `Signer: ${asciiName || '(see email)'}`,
       `Time: ${stamp}`,
-      `IP: ${asciiLog(ip)}`,
-      `UA: ${asciiLog(ua)}`
+      `IP: ${ip}`,
+      `UA: ${ua}`,
+      `Token: ${token}`
     ];
     logLines.forEach((line, i) => {
       last.drawText(line, { x: 24, y: 20 + (logLines.length - 1 - i) * 11, size: 7, color: rgb(0.45, 0.45, 0.45) });
