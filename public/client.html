@@ -30,9 +30,7 @@
     padding:16px;backdrop-filter:blur(12px);margin-bottom:16px}
   .panel h2{font-size:13px;color:var(--neon-green);margin-bottom:10px;font-weight:700;letter-spacing:.5px}
   #pdfWrap{position:relative;text-align:center;background:#0a0e16;border-radius:10px;
-    padding:10px;max-height:58vh;overflow:auto;transition:max-height .25s}
-  #pdfWrap.full{max-height:none;position:fixed;inset:0;z-index:50;border-radius:0;
-    padding:54px 10px 10px;overflow:auto;background:#05070d}
+    padding:10px;max-height:58vh;overflow:auto}
   #pdfCanvas{max-width:100%;cursor:crosshair;display:block;margin:0 auto}
   /* 簽名落點：點擊後出現的等比虛線框（= 後端實際壓印大小）*/
   .marker{position:absolute;border:2px dashed var(--neon-pink);border-radius:6px;
@@ -45,10 +43,26 @@
   .review-bar{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:10px}
   .review-bar .expand{background:#0a0e16;border:1px solid var(--neon-blue);color:var(--neon-blue);
     border-radius:8px;padding:6px 14px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600}
-  #fsClose{display:none;position:fixed;top:12px;right:14px;z-index:60;
-    background:rgba(10,14,22,.9);border:1px solid var(--neon-pink);color:var(--neon-pink);
-    border-radius:9px;padding:8px 16px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:700}
-  #pdfWrap.full ~ #fsClose,body.fs #fsClose{display:block}
+  /* Bug2：未點落點時，引導使用者點文件區的高亮提示 */
+  #pdfWrap.need-pick{animation:pulseGuide 1.1s ease-in-out 3;box-shadow:0 0 0 2px var(--neon-pink),0 0 22px rgba(255,45,120,.5)}
+  @keyframes pulseGuide{0%,100%{box-shadow:0 0 0 2px rgba(255,45,120,.35),0 0 12px rgba(255,45,120,.25)}
+    50%{box-shadow:0 0 0 3px var(--neon-pink),0 0 26px rgba(255,45,120,.7)}}
+  .hint.flash{color:var(--neon-pink);font-weight:700}
+  /* Bug1：真·審閱彈窗 overlay（高解析度重新渲染，獨立捲動） */
+  #reviewModal{display:none;position:fixed;inset:0;z-index:90;background:rgba(3,5,9,.92);
+    backdrop-filter:blur(3px)}
+  #reviewModal.open{display:block}
+  #rmBar{position:fixed;top:0;left:0;right:0;height:48px;display:flex;align-items:center;
+    justify-content:space-between;padding:0 14px;background:rgba(10,14,22,.96);
+    border-bottom:1px solid var(--line);z-index:92}
+  #rmBar .t{font-size:13px;color:#cbd5e6;font-weight:600}
+  #rmClose{background:transparent;border:1px solid var(--neon-pink);color:var(--neon-pink);
+    border-radius:9px;padding:7px 16px;cursor:pointer;font-family:inherit;font-size:14px;font-weight:700}
+  #rmScroll{position:absolute;top:48px;bottom:0;left:0;right:0;overflow:auto;
+    text-align:center;padding:14px 8px 40px}
+  #rmScroll canvas{max-width:100%;height:auto;display:block;margin:0 auto 14px;
+    background:#fff;border-radius:4px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+  #rmHint{color:var(--muted);font-size:12px;margin-top:6px}
   .pager{display:flex;gap:8px;justify-content:center;align-items:center;margin-top:10px;font-size:13px;color:var(--muted)}
   .pager button{background:#0a0e16;border:1px solid rgba(255,255,255,.1);color:#cbd5e6;
     border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit}
@@ -57,6 +71,18 @@
   .row{display:flex;gap:10px;margin-top:10px}
   .row button{flex:1;background:#0a0e16;border:1px solid rgba(255,255,255,.12);color:#aeb8cc;
     border-radius:9px;padding:9px;cursor:pointer;font-family:inherit;font-size:13px}
+  /* Bug3：清除簽名確認彈窗 */
+  #confirmClear{display:none;position:fixed;inset:0;z-index:95;background:rgba(3,5,9,.8);
+    align-items:center;justify-content:center;padding:30px}
+  #confirmClear.open{display:flex}
+  #confirmClear .box{background:#0e121c;border:1px solid var(--line);border-radius:14px;
+    padding:24px 22px;max-width:320px;text-align:center}
+  #confirmClear .box p{color:#e8edf5;font-size:15px;margin-bottom:18px;line-height:1.6}
+  #confirmClear .box .btns{display:flex;gap:10px}
+  #confirmClear .box button{flex:1;border-radius:10px;padding:12px;cursor:pointer;
+    font-family:inherit;font-size:14px;font-weight:700;border:none}
+  #ccCancel{background:#1a2030;color:#aeb8cc}
+  #ccOk{background:linear-gradient(90deg,var(--neon-pink),var(--neon-blue));color:#05070d}
   input[type=text]{width:100%;background:#0a0e16;border:1px solid rgba(255,255,255,.1);
     border-radius:10px;padding:12px 14px;color:#e8edf5;font-family:inherit;font-size:14px}
   input[type=text]:focus{outline:none;border-color:var(--neon-green);box-shadow:0 0 0 2px rgba(0,255,159,.15)}
@@ -113,13 +139,12 @@
         <canvas id="pdfCanvas"></canvas>
         <div class="marker" id="marker"></div>
       </div>
-      <button id="fsClose">✕ 關閉放大</button>
       <div class="pager">
         <button id="prev">‹ 上一頁</button>
         <span id="pageInfo">1 / 1</span>
         <button id="next">下一頁 ›</button>
       </div>
-      <div class="hint">在文件上點一下，標記簽名落款位置（出現虛線框＝實際簽名大小）。</div>
+      <div class="hint" id="pickHint">👆 在文件上點一下，標記簽名落款位置（出現虛線框＝實際簽名大小）。</div>
     </div>
 
     <div class="panel">
@@ -154,6 +179,26 @@
     <h2 style="color:var(--neon-blue)">此文件已完成簽署</h2>
     <p class="lk-time" style="margin-bottom:6px"></p>
     <p>本連結為一次性簽署憑證，已不可重新簽署。<br>如需重新簽署，請聯繫承辦人重新開立。</p>
+  </div>
+</div>
+
+<!-- Bug1：真·審閱彈窗（高解析度重新渲染，獨立捲動） -->
+<div id="reviewModal">
+  <div id="rmBar">
+    <span class="t">審閱文件</span>
+    <button id="rmClose">✕ 關閉</button>
+  </div>
+  <div id="rmScroll"></div>
+</div>
+
+<!-- Bug3：清除簽名確認 -->
+<div id="confirmClear">
+  <div class="box">
+    <p>確定要清除目前的簽名嗎？<br>此動作無法復原。</p>
+    <div class="btns">
+      <button id="ccCancel">取消</button>
+      <button id="ccOk">清除</button>
+    </div>
   </div>
 </div>
 <footer>
@@ -227,8 +272,7 @@ async function renderPage(n){
   const page=await pdfDoc.getPage(n);
   const wrapW=$('pdfWrap').clientWidth-20;
   const vp0=page.getViewport({scale:1});
-  const capScale=$('pdfWrap').classList.contains('full')?3:1.6;
-  renderScale=Math.min(capScale,wrapW/vp0.width);
+  renderScale=Math.min(1.6,wrapW/vp0.width);
   const vp=page.getViewport({scale:renderScale});
   const cv=$('pdfCanvas');cv.width=vp.width;cv.height=vp.height;
   await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
@@ -255,16 +299,46 @@ $('pdfCanvas').addEventListener('click',e=>{
 $('prev').addEventListener('click',()=>{if(curPage>1)renderPage(curPage-1)});
 $('next').addEventListener('click',()=>{if(curPage<totalPages)renderPage(curPage+1)});
 
-// ── 全屏審閱切換 ──
-function toggleFull(on){
-  const wrap=$('pdfWrap');
-  if(on){wrap.classList.add('full');document.body.classList.add('fs');$('fsClose').style.display='block';}
-  else{wrap.classList.remove('full');document.body.classList.remove('fs');$('fsClose').style.display='none';}
-  // 重繪以適應新寬度，並還原落點框
-  renderPage(curPage);
+// ── Bug1：真·審閱彈窗 — 在 overlay 內以高解析度重新渲染全部頁 ──
+let rmRendered=false;
+async function openReview(){
+  const modal=$('reviewModal'), scroll=$('rmScroll');
+  modal.classList.add('open');
+  document.body.style.overflow='hidden';
+  if(rmRendered) return;            // 已渲染過就不重畫
+  scroll.innerHTML='<div id="rmHint" style="color:#7e8aa0">渲染中…</div>';
+  // 以裝置像素比 + 容器寬度算出高解析度 scale（真實清晰，非 CSS 拉大）
+  const dpr=Math.min(window.devicePixelRatio||1, 2.5);
+  const availW=scroll.clientWidth-16;
+  const frag=document.createDocumentFragment();
+  for(let p=1;p<=totalPages;p++){
+    const page=await pdfDoc.getPage(p);
+    const base=page.getViewport({scale:1});
+    const cssScale=availW/base.width;          // 讓頁面填滿容器寬
+    const vp=page.getViewport({scale:cssScale*dpr});
+    const cv=document.createElement('canvas');
+    cv.width=vp.width; cv.height=vp.height;
+    cv.style.width=(base.width*cssScale)+'px';  // CSS 寬 = 容器寬，但畫布解析度 ×dpr
+    await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+    frag.appendChild(cv);
+  }
+  scroll.innerHTML='';
+  scroll.appendChild(frag);
+  const tip=document.createElement('div');
+  tip.id='rmHint'; tip.textContent='— 文件結尾 —';
+  scroll.appendChild(tip);
+  rmRendered=true;
 }
-$('expandBtn').addEventListener('click',()=>toggleFull(true));
-$('fsClose').addEventListener('click',()=>toggleFull(false));
+function closeReview(){
+  $('reviewModal').classList.remove('open');
+  document.body.style.overflow='';
+}
+$('expandBtn').addEventListener('click',openReview);
+$('rmClose').addEventListener('click',closeReview);
+// 點 overlay 背景空白處（非內容）也可關閉
+$('reviewModal').addEventListener('click',e=>{
+  if(e.target.id==='reviewModal'||e.target.id==='rmScroll')closeReview();
+});
 
 // ── 簽名板 ──
 function initSig(){
@@ -283,7 +357,14 @@ function initSig(){
   cv.addEventListener('touchstart',start,{passive:false});
   cv.addEventListener('touchmove',move,{passive:false});
   cv.addEventListener('touchend',end);
-  $('clearSig').addEventListener('click',()=>ctx.clearRect(0,0,cv.width,cv.height));
+  // Bug3：清除前先確認
+  const doClear=()=>ctx.clearRect(0,0,cv.width,cv.height);
+  $('clearSig').addEventListener('click',()=>$('confirmClear').classList.add('open'));
+  $('ccCancel').addEventListener('click',()=>$('confirmClear').classList.remove('open'));
+  $('ccOk').addEventListener('click',()=>{doClear();$('confirmClear').classList.remove('open');});
+  $('confirmClear').addEventListener('click',e=>{
+    if(e.target.id==='confirmClear')$('confirmClear').classList.remove('open');
+  });
 }
 function sigEmpty(){
   const cv=$('sigCanvas'),d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;
@@ -294,7 +375,16 @@ function sigEmpty(){
 $('submitBtn').addEventListener('click',async()=>{
   const msg=$('msg');msg.className='msg';msg.textContent='';
   const name=$('signerName').value.trim();
-  if(placedPage===null){msg.className='msg err';msg.textContent='請先在文件上點選簽名位置';return}
+  if(placedPage===null){
+    msg.className='msg err';msg.textContent='⚠ 請先點選文件上的簽名落款位置';
+    // Bug2：把注意力拉回文件區
+    const wrap=$('pdfWrap'), hint=$('pickHint');
+    wrap.classList.remove('need-pick'); void wrap.offsetWidth; wrap.classList.add('need-pick');
+    hint.classList.add('flash');
+    wrap.scrollIntoView({behavior:'smooth',block:'center'});
+    setTimeout(()=>{wrap.classList.remove('need-pick');hint.classList.remove('flash');},3600);
+    return;
+  }
   if(sigEmpty()){msg.className='msg err';msg.textContent='請先手寫簽名';return}
   if(!name){msg.className='msg err';msg.textContent='請填寫姓名';return}
   $('submitBtn').disabled=true;$('submitBtn').textContent='送出中…';
