@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   :root{
     --neon-green:#00FF9F; --neon-pink:#FF2D78; --neon-blue:#00B4FF;
@@ -70,6 +71,28 @@
   .ft-legal{width:100%;text-align:center;font-size:10px;color:var(--muted);
     letter-spacing:1px;opacity:.7;margin-top:4px}
   .ft-legal b{color:var(--neon-blue);letter-spacing:2px}
+
+  /* ── 簽名落點指定 ── */
+  #placeArea{margin-top:16px}
+  #admPdfWrap{position:relative;text-align:center;background:#0a0e16;border-radius:10px;
+    padding:10px;max-height:52vh;overflow:auto;margin-top:7px}
+  #admCanvas{max-width:100%;cursor:crosshair;display:block;margin:0 auto}
+  .marker{position:absolute;border:2px dashed var(--neon-pink);border-radius:6px;
+    transform:translate(-50%,-50%);box-shadow:0 0 14px rgba(255,45,120,.5);
+    background:rgba(255,45,120,.06);cursor:pointer}
+  .marker .mcap{position:absolute;left:50%;top:-9px;transform:translateX(-50%);
+    font-size:9px;color:var(--neon-pink);background:#05070d;padding:0 5px;white-space:nowrap}
+  .pager{display:flex;gap:8px;justify-content:center;align-items:center;margin-top:10px;font-size:13px;color:var(--muted)}
+  .pager button{width:auto;margin-top:0;background:#0a0e16;border:1px solid rgba(255,255,255,.1);
+    color:#cbd5e6;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit;font-weight:500;font-size:13px}
+  .zone-list{margin-top:10px;display:flex;flex-direction:column;gap:7px}
+  .zone-row{display:flex;align-items:center;gap:8px;background:#0a0e16;
+    border:1px solid rgba(255,255,255,.08);border-radius:9px;padding:8px 10px;font-size:13px}
+  .zone-row .zn{color:#cbd5e6;white-space:nowrap}
+  .zone-row input.zl{flex:1;width:auto;margin:0;padding:7px 10px;font-size:13px}
+  .zone-row button.zx{width:auto;margin-top:0;padding:6px 11px;background:#1a2030;color:var(--neon-pink);
+    border:1px solid rgba(255,45,120,.3);border-radius:8px;font-weight:700;font-size:13px;cursor:pointer}
+  .zone-empty{color:var(--muted);font-size:12px;margin-top:8px}
 </style>
 </head>
 <body>
@@ -92,6 +115,18 @@
     <input type="text" id="caseName" placeholder="例：鍋美美食艷室 · 設備租賃合約">
     <label>合約 PDF</label>
     <input type="file" id="pdf" accept="application/pdf">
+
+    <div id="placeArea" style="display:none">
+      <label>指定簽名落點 · 點文件新增、點落點移除</label>
+      <div id="admPdfWrap"><canvas id="admCanvas"></canvas></div>
+      <div class="pager">
+        <button type="button" id="aPrev">‹ 上一頁</button>
+        <span id="aPageInfo">1 / 1</span>
+        <button type="button" id="aNext">下一頁 ›</button>
+      </div>
+      <div id="zoneList" class="zone-list"></div>
+    </div>
+
     <button id="go">產生簽署連結</button>
     <div class="err" id="err"></div>
     <div class="result" id="result">
@@ -164,17 +199,106 @@ function setErr(m){$('err').textContent=m||''}
 function toB64(file){return new Promise((res,rej)=>{const r=new FileReader();
   r.onload=()=>res(r.result);r.onerror=()=>rej(new Error('讀檔失敗'));r.readAsDataURL(file)})}
 
+// ── 簽名落點指定（admin 預先決策；沿用 client 的 relX/relY 正規化座標）──
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+let admDoc=null, admPage=1, admTotal=1, admScale=1, admB64='';
+let placements=[];
+const STAMP_W=160, STAMP_H=60;
+
+$('pdf').addEventListener('change',async()=>{
+  setErr(''); $('result').classList.remove('show');
+  placements=[]; admDoc=null; $('placeArea').style.display='none';
+  const f=$('pdf').files[0];
+  if(!f) return;
+  if(f.type!=='application/pdf'){ setErr('檔案必須是 PDF'); return; }
+  try{
+    admB64=await toB64(f);
+    const bytes=Uint8Array.from(atob(admB64.replace(/^data:application\/pdf;base64,/,'')),c=>c.charCodeAt(0));
+    admDoc=await pdfjsLib.getDocument({data:bytes}).promise;
+    admTotal=admDoc.numPages; admPage=1;
+    $('placeArea').style.display='block';
+    await admRender(1);
+    renderZones();
+  }catch(e){ setErr('PDF 載入失敗：'+e.message); }
+});
+
+async function admRender(n){
+  admPage=n;
+  const page=await admDoc.getPage(n);
+  const wrapW=$('admPdfWrap').clientWidth-20;
+  const vp0=page.getViewport({scale:1});
+  admScale=Math.min(1.6, wrapW/vp0.width);
+  const vp=page.getViewport({scale:admScale});
+  const cv=$('admCanvas'); cv.width=vp.width; cv.height=vp.height;
+  await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+  $('aPageInfo').textContent=n+' / '+admTotal;
+  admMarkers();
+}
+
+// 後端壓印框固定 160×60 PDF point，畫布放大 admScale 倍 → 虛線框所見即所得
+function admMarkers(){
+  const wrap=$('admPdfWrap'), cv=$('admCanvas');
+  wrap.querySelectorAll('.marker').forEach(m=>m.remove());
+  if(!cv.width) return;
+  const rect=cv.getBoundingClientRect();
+  const dispScale=rect.width/cv.width;
+  placements.forEach((pl,idx)=>{
+    if(pl.page!==admPage-1) return;
+    const m=document.createElement('div');
+    m.className='marker';
+    m.style.width=(STAMP_W*admScale*dispScale)+'px';
+    m.style.height=(STAMP_H*admScale*dispScale)+'px';
+    m.style.left=(cv.offsetLeft+pl.relX*rect.width)+'px';
+    m.style.top=(cv.offsetTop+pl.relY*rect.height)+'px';
+    const cap=document.createElement('span');
+    cap.className='mcap';
+    cap.textContent='#'+(idx+1)+(pl.label?(' · '+pl.label):'');
+    m.appendChild(cap);
+    m.addEventListener('click',ev=>{ ev.stopPropagation(); placements.splice(idx,1); admMarkers(); renderZones(); });
+    wrap.appendChild(m);
+  });
+}
+
+$('admCanvas').addEventListener('click',e=>{
+  const cv=$('admCanvas'), r=cv.getBoundingClientRect();
+  const relX=(e.clientX-r.left)/r.width, relY=(e.clientY-r.top)/r.height;
+  placements.push({page:admPage-1, relX, relY, label:''});
+  admMarkers(); renderZones();
+});
+$('aPrev').addEventListener('click',()=>{ if(admPage>1) admRender(admPage-1); });
+$('aNext').addEventListener('click',()=>{ if(admPage<admTotal) admRender(admPage+1); });
+addEventListener('resize',()=>{ if(admDoc) admMarkers(); });
+
+function renderZones(){
+  const box=$('zoneList');
+  if(!placements.length){ box.innerHTML='<div class="zone-empty">尚未指定任何簽名落點。請於上方文件點一下新增。</div>'; return; }
+  box.innerHTML='';
+  placements.forEach((pl,idx)=>{
+    const row=document.createElement('div'); row.className='zone-row';
+    const zn=document.createElement('span'); zn.className='zn';
+    zn.textContent='#'+(idx+1)+'　第 '+(pl.page+1)+' 頁';
+    const inp=document.createElement('input'); inp.type='text'; inp.className='zl';
+    inp.placeholder='標籤（選填，如：乙方）'; inp.value=pl.label||''; inp.maxLength=20;
+    inp.addEventListener('input',()=>{ pl.label=inp.value; admMarkers(); });
+    const x=document.createElement('button'); x.type='button'; x.className='zx'; x.textContent='移除';
+    x.addEventListener('click',()=>{ placements.splice(idx,1); admMarkers(); renderZones(); });
+    row.appendChild(zn); row.appendChild(inp); row.appendChild(x);
+    box.appendChild(row);
+  });
+}
+
 $('go').addEventListener('click',async()=>{
   setErr(''); $('result').classList.remove('show');
   const f=$('pdf').files[0];
   if(!f){setErr('請選擇 PDF 檔');return}
   if(f.type!=='application/pdf'){setErr('檔案必須是 PDF');return}
+  if(!placements.length){setErr('請至少指定一個簽名落點（在文件上點一下）');return}
   $('go').disabled=true;$('go').textContent='上傳中…';
   try{
-    const pdfBase64=await toB64(f);
+    const pdfBase64=admB64||await toB64(f);
     const resp=await fetch('/api/upload',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({pdfBase64,caseName:$('caseName').value.trim()})});
+      body:JSON.stringify({pdfBase64,caseName:$('caseName').value.trim(),placements})});
     const data=await resp.json();
     if(!data.ok)throw new Error(data.detail||data.error||'上傳失敗');
     $('link').textContent=data.link;

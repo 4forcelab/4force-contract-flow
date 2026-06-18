@@ -31,13 +31,14 @@
   .panel h2{font-size:13px;color:var(--neon-green);margin-bottom:10px;font-weight:700;letter-spacing:.5px}
   #pdfWrap{position:relative;text-align:center;background:#0a0e16;border-radius:10px;
     padding:10px;max-height:58vh;overflow:auto}
-  #pdfCanvas{max-width:100%;cursor:crosshair;display:block;margin:0 auto}
+  #pdfCanvas{max-width:100%;cursor:default;display:block;margin:0 auto}
   /* 簽名落點：點擊後出現的等比虛線框（= 後端實際壓印大小）*/
   .marker{position:absolute;border:2px dashed var(--neon-pink);border-radius:6px;
     transform:translate(-50%,-50%);pointer-events:none;
     box-shadow:0 0 14px rgba(255,45,120,.5);display:none;
     background:rgba(255,45,120,.06)}
-  .marker::after{content:'簽名落款處';position:absolute;left:50%;top:-9px;
+  .marker::after{content:'';display:none}
+  .marker .mcap{position:absolute;left:50%;top:-9px;
     transform:translateX(-50%);font-size:9px;color:var(--neon-pink);
     background:#05070d;padding:0 5px;white-space:nowrap}
   .review-bar{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:10px}
@@ -130,21 +131,20 @@
 
   <div id="flow" style="display:none">
     <div class="panel">
-      <h2>① 審閱文件 · 點選簽名位置</h2>
+      <h2>① 審閱文件 · 確認簽名位置</h2>
       <div class="review-bar">
         <span style="font-size:12px;color:var(--muted)">請審閱合約內容後簽署</span>
         <button class="expand" id="expandBtn">⤢ 放大審閱</button>
       </div>
       <div id="pdfWrap">
         <canvas id="pdfCanvas"></canvas>
-        <div class="marker" id="marker"></div>
       </div>
       <div class="pager">
         <button id="prev">‹ 上一頁</button>
         <span id="pageInfo">1 / 1</span>
         <button id="next">下一頁 ›</button>
       </div>
-      <div class="hint" id="pickHint">👆 在文件上點一下，標記簽名落款位置（出現虛線框＝實際簽名大小）。</div>
+      <div class="hint" id="pickHint">✍ 簽名位置已由承辦人預先指定（虛線框＝簽名落點）；請審閱後於下方手寫簽名。</div>
     </div>
 
     <div class="panel">
@@ -237,7 +237,7 @@ const $=id=>document.getElementById(id);
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 const token=(location.pathname.split('/s/')[1]||'').split(/[/?#]/)[0];
-let pdfDoc=null,curPage=1,totalPages=1,placedPage=null,relX=0.5,relY=0.85;
+let pdfDoc=null,curPage=1,totalPages=1,placements=[];
 let renderScale=1;
 
 // ── 載入文件 ──
@@ -256,6 +256,7 @@ async function load(){
     const d=await r.json();
     if(!d.ok)throw new Error(d.detail||d.error||'載入失敗');
     $('caseLine').innerHTML='案件：<b>'+d.caseName+'</b>';
+    placements = Array.isArray(d.placements) ? d.placements : [];
     // 一次性鎖定：已簽署則顯示鎖定畫面，不載入簽署流程
     if(d.signed){ showLocked(d.signedAt); return; }
     const bytes=Uint8Array.from(atob(d.pdfBase64),c=>c.charCodeAt(0));
@@ -277,25 +278,35 @@ async function renderPage(n){
   const cv=$('pdfCanvas');cv.width=vp.width;cv.height=vp.height;
   await page.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
   $('pageInfo').textContent=n+' / '+totalPages;
-  $('marker').style.display=(placedPage===n)?'block':'none';
-  if(placedPage===n)positionMarker();
+  renderMarkers();
 }
 // 後端壓印框固定 160×60 PDF point；畫布是 PDF 放大 renderScale 倍，
 // 故畫布上的虛線框 = 160*renderScale × 60*renderScale，達成所見即所得。
 const STAMP_W=160, STAMP_H=60;
-function positionMarker(){
-  const cv=$('pdfCanvas'),m=$('marker');
-  const dispScale=cv.getBoundingClientRect().width/cv.width; // 畫布 CSS 顯示縮放
-  m.style.width=(STAMP_W*renderScale*dispScale)+'px';
-  m.style.height=(STAMP_H*renderScale*dispScale)+'px';
-  m.style.left=(cv.offsetLeft+relX*cv.getBoundingClientRect().width)+'px';
-  m.style.top=(cv.offsetTop+relY*cv.getBoundingClientRect().height)+'px';
+// 落點由 admin 預先指定：把當前頁的所有 placements 畫成唯讀「請在此簽」虛線框（客戶不可移動）
+function renderMarkers(){
+  const wrap=$('pdfWrap'), cv=$('pdfCanvas');
+  wrap.querySelectorAll('.marker').forEach(m=>m.remove());
+  if(!cv.width) return;
+  const rect=cv.getBoundingClientRect();
+  const dispScale=rect.width/cv.width;
+  placements.forEach(pl=>{
+    if((parseInt(pl.page,10)||0)!==curPage-1) return;
+    const m=document.createElement('div');
+    m.className='marker';
+    m.style.display='block';
+    m.style.width=(STAMP_W*renderScale*dispScale)+'px';
+    m.style.height=(STAMP_H*renderScale*dispScale)+'px';
+    m.style.left=(cv.offsetLeft+(Number(pl.relX)||0)*rect.width)+'px';
+    m.style.top=(cv.offsetTop+(Number(pl.relY)||0)*rect.height)+'px';
+    const cap=document.createElement('span');
+    cap.className='mcap';
+    cap.textContent='請在此簽'+(pl.label?(' · '+pl.label):'');
+    m.appendChild(cap);
+    wrap.appendChild(m);
+  });
 }
-$('pdfCanvas').addEventListener('click',e=>{
-  const cv=$('pdfCanvas'),r=cv.getBoundingClientRect();
-  relX=(e.clientX-r.left)/r.width; relY=(e.clientY-r.top)/r.height;
-  placedPage=curPage; $('marker').style.display='block'; positionMarker();
-});
+addEventListener('resize',()=>{ if(pdfDoc) renderMarkers(); });
 $('prev').addEventListener('click',()=>{if(curPage>1)renderPage(curPage-1)});
 $('next').addEventListener('click',()=>{if(curPage<totalPages)renderPage(curPage+1)});
 
@@ -395,24 +406,13 @@ function sigEmpty(){
 $('submitBtn').addEventListener('click',async()=>{
   const msg=$('msg');msg.className='msg';msg.textContent='';
   const name=$('signerName').value.trim();
-  if(placedPage===null){
-    msg.className='msg err';msg.textContent='⚠ 請先點選文件上的簽名落款位置';
-    // Bug2：把注意力拉回文件區
-    const wrap=$('pdfWrap'), hint=$('pickHint');
-    wrap.classList.remove('need-pick'); void wrap.offsetWidth; wrap.classList.add('need-pick');
-    hint.classList.add('flash');
-    wrap.scrollIntoView({behavior:'smooth',block:'center'});
-    setTimeout(()=>{wrap.classList.remove('need-pick');hint.classList.remove('flash');},3600);
-    return;
-  }
   if(sigEmpty()){msg.className='msg err';msg.textContent='請先手寫簽名';return}
   if(!name){msg.className='msg err';msg.textContent='請填寫姓名';return}
   $('submitBtn').disabled=true;$('submitBtn').textContent='送出中…';
   try{
     const sig=$('sigCanvas').toDataURL('image/png');
     const r=await fetch('/api/submit',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token,signerName:name,signatureBase64:sig,
-        page:placedPage-1,x:relX,y:relY})});
+      body:JSON.stringify({token,signerName:name,signatureBase64:sig})});
     const d=await r.json();
     // 已被簽署（極端情況：多分頁同時送出）→ 顯示鎖定畫面
     if(r.status===409||d.error==='ALREADY_SIGNED'){ showLocked(d.signedAt); return; }

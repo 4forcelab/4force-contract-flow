@@ -50,8 +50,13 @@ module.exports = async (req, res) => {
     }
 
     let caseName = '未命名案件';
+    let metaPlacements = [];
     if (metaBlob) {
-      try { caseName = (await (await fetch(metaBlob.url)).json()).caseName || caseName; } catch (_) {}
+      try {
+        const m = await (await fetch(metaBlob.url)).json();
+        caseName = m.caseName || caseName;
+        if (Array.isArray(m.placements)) metaPlacements = m.placements;
+      } catch (_) {}
     }
 
     const srcArr = Buffer.from(await (await fetch(pdfBlob.url)).arrayBuffer());
@@ -61,20 +66,38 @@ module.exports = async (req, res) => {
     const sigClean = String(signatureBase64).replace(/^data:image\/png;base64,/, '');
     const sigImg = await pdfDoc.embedPng(Buffer.from(sigClean, 'base64'));
     const pages = pdfDoc.getPages();
-    const pIdx = Math.max(0, Math.min(pages.length - 1, parseInt(page, 10) || 0));
-    const target = pages[pIdx];
-    const { width: pw, height: ph } = target.getSize();
+    const stamp = new Date().toISOString();
+    const dateAscii = stamp.slice(0, 16).replace('T', ' '); // YYYY-MM-DD HH:MM（ASCII，免 WinAnsi 中文崩潰）
 
-    // 前端傳的 x,y 為 0~1 比例（左上原點）→ 轉 PDF 左下原點
+    const clamp01 = (v, dflt) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return dflt;
+      return Math.min(1, Math.max(0, n));
+    };
+
+    // 落點來源：優先 meta.placements（admin 預先指定、防客戶竄改）。
+    // meta 無落點時（舊連結）回退單點：用 client 傳的 x/y/page，再無則預設右下置中。
+    let places = (Array.isArray(metaPlacements) && metaPlacements.length) ? metaPlacements : null;
+    if (!places) {
+      places = [{ page: Math.max(0, parseInt(page, 10) || 0), relX: clamp01(x, 0.5), relY: clamp01(y, 0.85), label: '' }];
+    }
+
+    // 同一張簽名圖，迴圈壓到每個落點。0~1 比例（左上原點）→ PDF 左下原點，置中。
     const sigW = 160, sigH = 60;
-    const px = (typeof x === 'number' ? x : 0.5) * pw - sigW / 2;
-    const py = ph - (typeof y === 'number' ? y : 0.85) * ph - sigH / 2;
-    target.drawImage(sigImg, { x: px, y: py, width: sigW, height: sigH });
+    places.forEach((pl) => {
+      const pIdx = Math.max(0, Math.min(pages.length - 1, parseInt(pl.page, 10) || 0));
+      const t = pages[pIdx];
+      const { width: pw, height: ph } = t.getSize();
+      const px = clamp01(pl.relX, 0.5) * pw - sigW / 2;
+      const py = ph - clamp01(pl.relY, 0.85) * ph - sigH / 2;
+      t.drawImage(sigImg, { x: px, y: py, width: sigW, height: sigH });
+      // 伺服器時間戳壓在簽名框下方（ASCII；甲乙方等中文 label 走 email 內文，不入 PDF）
+      t.drawText(dateAscii, { x: px, y: py - 10, size: 7, color: rgb(0.45, 0.45, 0.45) });
+    });
 
     // log 資訊壓在最後一頁底部
     const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
     const ua = (req.headers['user-agent'] || 'unknown').slice(0, 120);
-    const stamp = new Date().toISOString();
     // pdf-lib 內建字型只支援 WinAnsi（無法寫中文）。
     // PDF 上的 log 僅壓「ASCII 安全」欄位（時間/IP/UA/token）；
     // 中文內容（簽署人姓名、案件名）改放 email 內文（UTF-8，零編碼問題）。
@@ -107,7 +130,7 @@ module.exports = async (req, res) => {
       from: `4force lab 簽署系統 <${process.env.GMAIL_USER}>`,
       to: process.env.NOTIFY_EMAIL,
       subject: `【已簽署】${caseName} — ${signerName}`,
-      text: `案件：${caseName}\n簽署人：${signerName}\n時間：${stamp}\nIP：${ip}\nUA：${ua}\nToken：${token}`,
+      text: `案件：${caseName}\n簽署人：${signerName}\n時間：${stamp}\nIP：${ip}\nUA：${ua}\nToken：${token}\n簽署位置：${places.map((p, i) => `#${i + 1} 第${(parseInt(p.page, 10) || 0) + 1}頁${p.label ? ' · ' + p.label : ''}`).join('、')}`,
       attachments: [{
         filename: `${fnameSafe}_signed.pdf`,
         content: Buffer.from(signedBytes),

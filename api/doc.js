@@ -58,6 +58,7 @@ module.exports = async (req, res) => {
     res.status(200).json({
       ok: true,
       caseName: meta.caseName || '未命名案件',
+      placements: Array.isArray(meta.placements) ? meta.placements : [],
       pdfBase64: pdfArr.toString('base64'),
       signed,
       signedAt

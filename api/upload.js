@@ -19,10 +19,28 @@ module.exports = async (req, res) => {
     if (typeof body === 'string') body = JSON.parse(body || '{}');
     if (!body || typeof body !== 'object') body = {};
 
-    const { pdfBase64, caseName } = body;
+    const { pdfBase64, caseName, placements } = body;
     if (!pdfBase64) {
       res.status(400).json({ error: 'MISSING_PDF' });
       return;
+    }
+
+    // 正規化座標夾在 [0,1]，NaN 才回退預設（relX=0 等合法值不可被 || 蓋掉）
+    const clamp01 = (v, dflt) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return dflt;
+      return Math.min(1, Math.max(0, n));
+    };
+    // 簽名落點：admin 預先指定。陣列 schema（單點＝放一個、多點＝放多個）。
+    // 上限 20 防濫用；label 截 20 字；page 0-indexed。
+    let cleanPlacements = [];
+    if (Array.isArray(placements)) {
+      cleanPlacements = placements.slice(0, 20).map((p) => ({
+        page: Math.max(0, parseInt(p && p.page, 10) || 0),
+        relX: clamp01(p && p.relX, 0.5),
+        relY: clamp01(p && p.relY, 0.85),
+        label: (p && p.label ? String(p.label) : '').slice(0, 20)
+      }));
     }
 
     // 去掉 data URI 前綴
@@ -36,7 +54,8 @@ module.exports = async (req, res) => {
     const token = crypto.randomBytes(16).toString('hex');
     const meta = {
       caseName: (caseName || '未命名案件').toString().slice(0, 120),
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      placements: cleanPlacements
     };
 
     // 存 PDF 與 meta（同 token 命名）
